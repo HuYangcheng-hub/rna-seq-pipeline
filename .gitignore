@@ -1,10 +1,7 @@
-data/*
-!data/README.md
+data/*.fastq
+data/*.fastq.gz
 results/*
 logs/*
-config/config.yaml
-*.fastq
-*.fastq.gz
 *.bam
 *.bai
 *.sam

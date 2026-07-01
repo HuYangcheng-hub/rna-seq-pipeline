@@ -1,0 +1,11 @@
+samples:
+  - control_1
+  - control_2
+  - treat_1
+  - treat_2
+
+paired_end: true
+
+star_index: /path/to/star_index
+
+gtf: /path/to/annotations.gtf
