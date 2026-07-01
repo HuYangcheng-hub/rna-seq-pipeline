@@ -1,0 +1,10 @@
+data/*
+!data/README.md
+results/*
+logs/*
+config/config.yaml
+*.fastq
+*.fastq.gz
+*.bam
+*.bai
+*.sam
