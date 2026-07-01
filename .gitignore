@@ -5,3 +5,4 @@ logs/*
 *.bam
 *.bai
 *.sam
+!.gitkeep
