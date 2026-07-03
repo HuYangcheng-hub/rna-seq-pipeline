@@ -1,0 +1,10 @@
+name: rna_seq_deseq2
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - r-base>=4.3
+  - r-yaml
+  - r-ggplot2
+  - r-pheatmap
+  - bioconductor-deseq2

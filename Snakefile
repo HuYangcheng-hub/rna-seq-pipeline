@@ -1,203 +1,278 @@
-
 """
-======================================================================
-RNA-seq 分析流程 (RNA-seq Analysis Pipeline)
-======================================================================
+RNA-seq upstream and differential expression workflow.
 
-本流程实现从 FASTQ 原始数据到差异表达基因 (DEG) 的全自动分析。
-
-流程步骤:
-  1. FastQC       — 原始测序数据质量评估
-  2. MultiQC      — 多样本质控报告汇总
-  3. STAR         — 比对到参考基因组
-  4. samtools     — BAM 文件排序与索引
-  5. featureCounts — 基因水平定量
-  6. merges_counts — 合并表达矩阵
-  7. DESeq2       — 差异表达分析 & 可视化
-
-使用方法:
-  snakemake -c N         # 使用 N 个核心运行
-  snakemake -n           # 预览流程（不实际运行）
-  snakemake --dag | dot -Tpng > dag.png  # 生成流程图
-
-作者: Hu Yangcheng
-许可证: MIT
+The workflow covers:
+  1. input/config validation
+  2. FastQC and MultiQC
+  3. optional fastp trimming
+  4. STAR alignment
+  5. BAM indexing
+  6. featureCounts quantification
+  7. count matrix merge
+  8. DESeq2 differential analysis
 """
+
+import csv
+from pathlib import Path
 
 configfile: "config/config.yaml"
 
-# =======================
-# 全局参数
-# =======================
-SAMPLES = config["samples"]
-PAIRED_END = config.get("paired_end", True)
-THREADS = config.get("resources", {})
 
-# 辅助函数：获取 R1/R2 文件路径
-def get_fastqs(sample, wildcards):
-    r1 = f"data/{sample}_R1.fastq.gz"
-    return r1
+SAMPLE_SHEET = config.get("sample_sheet", "config/samples.tsv")
+PAIRED_END = bool(config.get("paired_end", True))
+TRIM_ENABLED = bool(config.get("trimming", {}).get("enabled", False))
+READS = ["R1", "R2"] if PAIRED_END else ["R1"]
 
-# =======================
-# 最终目标
-# =======================
-rule all:
-    """最终产出：质控报告 + 差异表达结果"""
-    input:
-        "results/multiqc_report.html",
-        "results/differential/deseq2_results.csv"
 
-# =======================
-# Step 1: 原始数据质控
-# =======================
-rule fastqc:
-    """FastQC: 对原始 FASTQ 进行质量评估
-       输出 HTML 可视化报告 + ZIP 压缩包"""
-    input:
-        get_fastqs
-    output:
-        html = "results/fastqc/{sample}_fastqc.html",
-        zip = "results/fastqc/{sample}_fastqc.zip"
-    log:
-        "logs/fastqc/{sample}.log"
-    threads: THREADS.get("fastqc_threads", 4)
-    shell:
-        "fastqc -o results/fastqc --threads {threads} {input} 2> {log}"
+def read_samples(sample_sheet):
+    samples = {}
+    with open(sample_sheet, newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        required = {"sample", "condition", "fastq_1"}
+        missing = required - set(reader.fieldnames or [])
+        if missing:
+            raise ValueError(
+                f"{sample_sheet} is missing required columns: {', '.join(sorted(missing))}"
+            )
+        for row in reader:
+            sample = row["sample"].strip()
+            if not sample:
+                continue
+            samples[sample] = {
+                "condition": row["condition"].strip(),
+                "R1": row["fastq_1"].strip(),
+                "R2": row.get("fastq_2", "").strip(),
+            }
+    if not samples:
+        raise ValueError(f"No samples found in {sample_sheet}")
+    return samples
 
-# =======================
-# Step 2: 质控汇总
-# =======================
-rule multiqc:
-    """MultiQC: 汇总所有 FastQC 报告为一个交互式 HTML"""
-    input:
-        expand("results/fastqc/{sample}_fastqc.zip", sample=SAMPLES)
-    output:
-        "results/multiqc_report.html"
-    log:
-        "logs/multiqc.log"
-    shell:
-        "multiqc results/fastqc -o results/ 2> {log}"
 
-# =======================
-# Step 3: STAR 比对
-# =======================
-rule star:
-    """STAR: 将 reads 比对到参考基因组
-       输出按坐标排序的 BAM 文件"""
-    input:
-        r1 = "data/{sample}_R1.fastq.gz"
-    output:
-        bam = "results/star/{sample}_Aligned.sortedByCoord.out.bam",
-        log_final = "results/star/{sample}_Log.final.out"
-    params:
-        index = config["star_index"],
-        prefix = "results/star/{sample}_"
-    log:
-        "logs/star/{sample}.log"
-    threads: THREADS.get("star_threads", 8)
-    run:
-        cmd = (
-            f"STAR --genomeDir {params.index} "
-            f"--readFilesIn {input.r1} "
-        )
+SAMPLE_INFO = read_samples(SAMPLE_SHEET)
+SAMPLES = list(SAMPLE_INFO)
+CONDITIONS = sorted({SAMPLE_INFO[s]["condition"] for s in SAMPLES})
+
+
+def raw_fastq(wildcards):
+    return SAMPLE_INFO[wildcards.sample][wildcards.read]
+
+
+def alignment_reads(wildcards):
+    if TRIM_ENABLED:
         if PAIRED_END:
-            cmd += f"data/{{wildcards.sample}}_R2.fastq.gz "
-        cmd += (
-            f"--readFilesCommand zcat "
-            f"--outFileNamePrefix {params.prefix} "
-            f"--outSAMtype BAM SortedByCoordinate "
-            f"--runThreadN {threads} 2> {log}"
-        )
-        shell(cmd)
+            return [
+                f"results/trimmed/{wildcards.sample}_R1.fastq.gz",
+                f"results/trimmed/{wildcards.sample}_R2.fastq.gz",
+            ]
+        return [f"results/trimmed/{wildcards.sample}_R1.fastq.gz"]
+    reads = [SAMPLE_INFO[wildcards.sample]["R1"]]
+    if PAIRED_END:
+        reads.append(SAMPLE_INFO[wildcards.sample]["R2"])
+    return reads
 
-# =======================
-# Step 4: BAM 索引
-# =======================
-rule samtools_index:
-    """samtools: 为 BAM 文件建立索引 (.bai)"""
+
+def star_read_command(wildcards, input):
+    reads = list(input.reads)
+    return "--readFilesCommand zcat" if any(str(read).endswith(".gz") for read in reads) else ""
+
+
+def star_extra_params():
+    params = config.get("star_params", {})
+    return " ".join(f"--{key} {value}" for key, value in params.items())
+
+
+def featurecounts_paired_params():
+    return "-p --countReadPairs" if PAIRED_END else ""
+
+
+FASTQC_OUTPUTS = expand(
+    "results/fastqc/{sample}_{read}_fastqc.zip",
+    sample=SAMPLES,
+    read=READS,
+)
+
+TRIM_OUTPUTS = (
+    expand("results/trimmed/{sample}_{read}.fastq.gz", sample=SAMPLES, read=READS)
+    if TRIM_ENABLED
+    else []
+)
+
+
+rule all:
     input:
-        "results/star/{sample}_Aligned.sortedByCoord.out.bam"
+        "results/validation/samples.validated.tsv",
+        "results/multiqc_report.html",
+        expand("results/star/{sample}_Aligned.sortedByCoord.out.bam", sample=SAMPLES),
+        expand("results/star/{sample}_Aligned.sortedByCoord.out.bam.bai", sample=SAMPLES),
+        expand("results/counts/{sample}_counts.txt", sample=SAMPLES),
+        "results/counts/all_samples_counts.txt",
+        "results/differential/deseq2_results.csv",
+        "results/differential/deseq2_sig_genes.csv",
+        "results/differential/normalized_counts.csv",
+        "results/differential/volcano_plot.png",
+        "results/differential/heatmap.png",
+        "results/differential/pca_plot.png",
+
+
+rule validate_inputs:
+    input:
+        sample_sheet=SAMPLE_SHEET,
+        fastqs=[SAMPLE_INFO[s][read] for s in SAMPLES for read in READS],
     output:
-        "results/star/{sample}_Aligned.sortedByCoord.out.bam.bai"
+        "results/validation/samples.validated.tsv",
     log:
-        "logs/samtools/{sample}.log"
+        "logs/validation/validate_inputs.log",
+    conda:
+        "envs/validate.yaml",
     shell:
-        "samtools index {input} 2> {log}"
+        "python scripts/validate_inputs.py "
+        "--config config/config.yaml "
+        "--sample-sheet {input.sample_sheet} "
+        "--output {output} > {log} 2>&1"
 
-# =======================
-# Step 5: 基因定量
-# =======================
-rule feature_counts:
-    """featureCounts: 在基因水平进行 reads 计数"""
+
+rule fastqc:
     input:
-        bam = "results/star/{sample}_Aligned.sortedByCoord.out.bam",
-        bai = "results/star/{sample}_Aligned.sortedByCoord.out.bam.bai"
+        fastq=raw_fastq,
+        validated="results/validation/samples.validated.tsv",
     output:
-        "results/counts/{sample}_counts.txt"
-    params:
-        gtf = config["gtf"],
-        strand = config.get("feature_counts_params", {}).get("strand_specific", 0),
-        min_qual = config.get("feature_counts_params", {}).get("min_mapping_quality", 10)
+        html="results/fastqc/{sample}_{read}_fastqc.html",
+        zip="results/fastqc/{sample}_{read}_fastqc.zip",
     log:
-        "logs/featureCounts/{sample}.log"
-    threads: THREADS.get("featurecounts_threads", 4)
+        "logs/fastqc/{sample}_{read}.log",
+    threads: config.get("resources", {}).get("fastqc_threads", 2)
+    conda:
+        "envs/qc.yaml",
+    shell:
+        "fastqc -o results/fastqc --threads {threads} {input.fastq} > {log} 2>&1"
+
+
+rule fastp_trim:
+    input:
+        r1=lambda wc: SAMPLE_INFO[wc.sample]["R1"],
+        r2=lambda wc: SAMPLE_INFO[wc.sample]["R2"] if PAIRED_END else "",
+        validated="results/validation/samples.validated.tsv",
+    output:
+        r1="results/trimmed/{sample}_R1.fastq.gz",
+        r2="results/trimmed/{sample}_R2.fastq.gz" if PAIRED_END else [],
+        html="results/trimmed/{sample}.fastp.html",
+        json="results/trimmed/{sample}.fastp.json",
+    log:
+        "logs/fastp/{sample}.log",
+    threads: config.get("resources", {}).get("trim_threads", 4)
+    conda:
+        "envs/qc.yaml",
+    script:
+        "scripts/run_fastp.py"
+
+
+rule multiqc:
+    input:
+        fastqc=FASTQC_OUTPUTS,
+        trimmed=TRIM_OUTPUTS,
+    output:
+        "results/multiqc_report.html",
+    log:
+        "logs/multiqc.log",
+    conda:
+        "envs/qc.yaml",
+    shell:
+        "multiqc results -o results --filename multiqc_report.html > {log} 2>&1"
+
+
+rule star_align:
+    input:
+        reads=alignment_reads,
+        validated="results/validation/samples.validated.tsv",
+    output:
+        bam="results/star/{sample}_Aligned.sortedByCoord.out.bam",
+        log_final="results/star/{sample}_Log.final.out",
+    params:
+        index=lambda wc: config["reference"]["star_index"],
+        prefix=lambda wc, output: str(output.bam).replace("Aligned.sortedByCoord.out.bam", ""),
+        read_command=star_read_command,
+        extra=star_extra_params(),
+    log:
+        "logs/star/{sample}.log",
+    threads: config.get("resources", {}).get("star_threads", 8)
+    conda:
+        "envs/align.yaml",
+    shell:
+        "STAR --genomeDir {params.index} "
+        "--readFilesIn {input.reads} "
+        "{params.read_command} "
+        "--outFileNamePrefix {params.prefix} "
+        "--outSAMtype BAM SortedByCoordinate "
+        "--runThreadN {threads} "
+        "{params.extra} > {log} 2>&1"
+
+
+rule samtools_index:
+    input:
+        "results/star/{sample}_Aligned.sortedByCoord.out.bam",
+    output:
+        "results/star/{sample}_Aligned.sortedByCoord.out.bam.bai",
+    log:
+        "logs/samtools/{sample}.log",
+    conda:
+        "envs/align.yaml",
+    shell:
+        "samtools index {input} > {log} 2>&1"
+
+
+rule feature_counts:
+    input:
+        bam="results/star/{sample}_Aligned.sortedByCoord.out.bam",
+        bai="results/star/{sample}_Aligned.sortedByCoord.out.bam.bai",
+        validated="results/validation/samples.validated.tsv",
+    output:
+        "results/counts/{sample}_counts.txt",
+    params:
+        gtf=lambda wc: config["reference"]["gtf"],
+        strand=lambda wc: config.get("feature_counts_params", {}).get("strand_specific", 0),
+        min_qual=lambda wc: config.get("feature_counts_params", {}).get("min_mapping_quality", 10),
+        paired=featurecounts_paired_params(),
+        extra=lambda wc: config.get("feature_counts_params", {}).get("extra", ""),
+    log:
+        "logs/featureCounts/{sample}.log",
+    threads: config.get("resources", {}).get("featurecounts_threads", 4)
+    conda:
+        "envs/counts.yaml",
     shell:
         "featureCounts -T {threads} -t exon -g gene_id "
         "-s {params.strand} -Q {params.min_qual} "
-        "-a {params.gtf} -o {output} {input.bam} 2> {log}"
+        "{params.paired} {params.extra} "
+        "-a {params.gtf} -o {output} {input.bam} > {log} 2>&1"
 
-# =======================
-# Step 6: 合并表达矩阵
-# =======================
+
 rule merge_counts:
-    """合并所有样本的 count 数据为一个表达矩阵"""
     input:
-        expand("results/counts/{sample}_counts.txt", sample=SAMPLES)
+        counts=expand("results/counts/{sample}_counts.txt", sample=SAMPLES),
+        sample_sheet=SAMPLE_SHEET,
     output:
-        "results/counts/all_samples_counts.txt"
+        matrix="results/counts/all_samples_counts.txt",
     log:
-        "logs/merge_counts.log"
-    run:
-        import pandas as pd
-        import glob
+        "logs/merge_counts.log",
+    conda:
+        "envs/counts.yaml",
+    script:
+        "scripts/merge_counts.py"
 
-        count_files = sorted(glob.glob("results/counts/*_counts.txt"))
-        counts = []
-        for f in count_files:
-            # 跳过合并后的文件自身
-            if "all_samples" in f:
-                continue
-            # 读取 featureCounts 输出（跳过前 2 行注释）
-            df = pd.read_csv(f, sep="\t", comment="#", low_memory=False)
-            sample_name = f.split("/")[-1].replace("_counts.txt", "")
 
-            # 提取基因名和 counts
-            if "Geneid" in df.columns and len(df.columns) >= 7:
-                count_col = df.columns[6]
-                counts.append(df[["Geneid", count_col]].rename(
-                    columns={"Geneid": "gene_id", count_col: sample_name}
-                ))
-
-        if counts:
-            merged = counts[0]
-            for df in counts[1:]:
-                merged = merged.merge(df, on="gene_id", how="outer")
-            merged.fillna(0, inplace=True)
-            merged.to_csv("results/counts/all_samples_counts.txt", sep="\\t", index=False)
-
-# =======================
-# Step 7: 差异表达分析
-# =======================
 rule deseq2_analysis:
-    """DESeq2 R 脚本: 差异表达分析 + 火山图 + 热图"""
     input:
-        "results/counts/all_samples_counts.txt"
+        counts="results/counts/all_samples_counts.txt",
+        sample_sheet=SAMPLE_SHEET,
     output:
-        csv = "results/differential/deseq2_results.csv",
-        sig = "results/differential/deseq2_sig_genes.csv",
-        volcano = "results/differential/volcano_plot.png",
-        heatmap = "results/differential/heatmap.png"
+        csv="results/differential/deseq2_results.csv",
+        sig="results/differential/deseq2_sig_genes.csv",
+        normalized="results/differential/normalized_counts.csv",
+        volcano="results/differential/volcano_plot.png",
+        heatmap="results/differential/heatmap.png",
+        pca="results/differential/pca_plot.png",
     log:
-        "logs/deseq2/deseq2.log"
+        "logs/deseq2/deseq2.log",
+    conda:
+        "envs/deseq2.yaml",
     script:
         "scripts/deseq2_analysis.R"

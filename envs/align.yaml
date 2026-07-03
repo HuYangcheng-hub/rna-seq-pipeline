@@ -1,0 +1,7 @@
+name: rna_seq_align
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - star>=2.7
+  - samtools>=1.18

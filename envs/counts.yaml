@@ -1,0 +1,8 @@
+name: rna_seq_counts
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - pandas>=2.0
+  - subread>=2.0

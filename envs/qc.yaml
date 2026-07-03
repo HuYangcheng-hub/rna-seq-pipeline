@@ -1,0 +1,8 @@
+name: rna_seq_qc
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - fastqc>=0.12
+  - multiqc>=1.14
+  - fastp>=0.23

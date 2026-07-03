@@ -1,46 +1,31 @@
-# ============================================
-# Conda 环境定义文件
-# ============================================
-# 使用方法：
-#   conda env create -f envs/environment.yaml
-#   conda activate rna_seq_pipeline
-
 name: rna_seq_pipeline
 channels:
   - conda-forge
   - bioconda
   - defaults
 dependencies:
-  # === 核心 ===
   - python=3.11
-  - snakemake-minimal>=7.0
+  - snakemake>=9.0
+  - pandas>=2.0
+  - pyyaml>=6.0
 
-  # === 质控 ===
+  # QC and preprocessing
   - fastqc>=0.12
   - multiqc>=1.14
-  - fastp
-  - cutadapt>=4.0
-  - trim-galore
+  - fastp>=0.23
 
-  # === 比对与定量 ===
+  # Alignment and quantification
   - star>=2.7
-  - subread>=2.0   # 提供 featureCounts
-  - salmon>=1.10
+  - subread>=2.0
   - samtools>=1.18
-  - bcftools>=1.18
 
-  # === 可视化 ===
-  - deeptools>=3.5
+  # R / Bioconductor
   - r-base>=4.3
-  - r-tidyverse
-  - r-biocmanager
+  - r-yaml
+  - r-ggplot2
   - r-pheatmap
   - bioconductor-deseq2
-  - bioconductor-clusterprofiler
-  - bioconductor-org.hs.eg.db
-  - bioconductor-ensdb.hsapiens.v86
 
-  # === 工具 ===
+  # Utilities
   - git
-  - wget
   - pigz

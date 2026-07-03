@@ -1,31 +1,38 @@
-# === 原始数据 ===
+# Raw sequencing data
 data/*.fastq
+data/*.fq
 data/*.fastq.gz
 data/*.fq.gz
 
-# === 分析结果 ===
-results/
-logs/
+# Reference assets and generated indexes
+reference/*
+!reference/.gitkeep
+!reference/README.md
 
-# === 二进制文件 ===
+# Workflow outputs and runtime state
+results/*
+!results/.gitkeep
+logs/*
+!logs/.gitkeep
+.snakemake/
+
+# Alignment and intermediate files
 *.bam
 *.bai
 *.sam
 *.cram
 *.crai
-
-# === 中间文件 ===
 *.tmp
 *.temp
 
-# === 系统文件 ===
+# System files
 .DS_Store
 Thumbs.db
 
-# === Python/环境 ===
+# Python / environments
 __pycache__/
 *.pyc
 .env
 
-# === 保留目录结构 ===
+# Keep empty directory structure
 !.gitkeep

@@ -1,0 +1,4 @@
+sample	condition	fastq_1	fastq_2
+control_1	control	data/control_1_R1.fastq	data/control_1_R2.fastq
+control_2	control	data/control_2_R1.fastq	data/control_2_R2.fastq
+treat_1	treat	data/treat_1_R1.fastq	data/treat_1_R2.fastq
