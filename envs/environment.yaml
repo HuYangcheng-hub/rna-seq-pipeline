@@ -2,10 +2,10 @@ name: rna_seq_pipeline
 channels:
   - conda-forge
   - bioconda
-  - defaults
+  - nodefaults
 dependencies:
   - python=3.11
-  - snakemake>=9.0
+  - snakemake>=8.0
   - pandas>=2.0
   - pyyaml>=6.0
 
