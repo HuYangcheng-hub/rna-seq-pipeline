@@ -4,10 +4,12 @@ data/*.fq
 data/*.fastq.gz
 data/*.fq.gz
 
-# Reference assets and generated indexes
+# Reference assets and generated indexes — only README and .gitkeep are tracked
 reference/*
 !reference/.gitkeep
 !reference/README.md
+# Ignore all subdirectories (genome FASTA, GTF, STAR index — download/generate locally)
+reference/**/
 
 # Workflow outputs and runtime state
 results/*

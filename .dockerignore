@@ -1,0 +1,11 @@
+data/
+reference/
+results/
+logs/
+.snakemake/
+.DS_Store
+.git/
+*.bam
+*.bai
+*.sam
+*.cram

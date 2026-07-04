@@ -71,9 +71,10 @@ def alignment_reads(wildcards):
     return reads
 
 
-def star_read_command(wildcards, input):
-    reads = list(input.reads)
-    return "--readFilesCommand zcat" if any(str(read).endswith(".gz") for read in reads) else ""
+def star_read_command(wildcards):
+    """Return --readFilesCommand zcat when reads are gzip-compressed."""
+    reads = alignment_reads(wildcards)
+    return "--readFilesCommand zcat" if any(str(r).endswith(".gz") for r in reads) else ""
 
 
 def star_extra_params():
@@ -172,12 +173,18 @@ rule multiqc:
         trimmed=TRIM_OUTPUTS,
     output:
         "results/multiqc_report.html",
+    params:
+        dirs=lambda wc: (
+            "results/fastqc results/trimmed"
+            if TRIM_ENABLED
+            else "results/fastqc"
+        ),
     log:
         "logs/multiqc.log",
     conda:
         "envs/qc.yaml",
     shell:
-        "multiqc results -o results --filename multiqc_report.html > {log} 2>&1"
+        "multiqc {params.dirs} -o results --filename multiqc_report.html > {log} 2>&1"
 
 
 rule star_align:
@@ -195,6 +202,8 @@ rule star_align:
     log:
         "logs/star/{sample}.log",
     threads: config.get("resources", {}).get("star_threads", 8)
+    resources:
+        mem_mb=config.get("resources", {}).get("memory_mb", 32000),
     conda:
         "envs/align.yaml",
     shell:
@@ -204,6 +213,7 @@ rule star_align:
         "--outFileNamePrefix {params.prefix} "
         "--outSAMtype BAM SortedByCoordinate "
         "--runThreadN {threads} "
+        "--limitBAMsortRAM {resources.mem_mb}000000 "
         "{params.extra} > {log} 2>&1"
 
 
@@ -214,10 +224,11 @@ rule samtools_index:
         "results/star/{sample}_Aligned.sortedByCoord.out.bam.bai",
     log:
         "logs/samtools/{sample}.log",
+    threads: 2
     conda:
         "envs/align.yaml",
     shell:
-        "samtools index {input} > {log} 2>&1"
+        "samtools index -@ {threads} {input} > {log} 2>&1"
 
 
 rule feature_counts:
@@ -236,6 +247,8 @@ rule feature_counts:
     log:
         "logs/featureCounts/{sample}.log",
     threads: config.get("resources", {}).get("featurecounts_threads", 4)
+    resources:
+        mem_mb=config.get("resources", {}).get("memory_mb", 8000),
     conda:
         "envs/counts.yaml",
     shell:
@@ -270,6 +283,7 @@ rule deseq2_analysis:
         volcano="results/differential/volcano_plot.png",
         heatmap="results/differential/heatmap.png",
         pca="results/differential/pca_plot.png",
+        session_info="results/differential/session_info.txt",
     log:
         "logs/deseq2/deseq2.log",
     conda:

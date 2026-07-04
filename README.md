@@ -1,5 +1,7 @@
 # RNA-seq 转录组分析流程
 
+[![Test RNA-seq Pipeline](https://github.com/HuYangcheng-hub/rna-seq-pipeline/actions/workflows/test.yml/badge.svg)](https://github.com/HuYangcheng-hub/rna-seq-pipeline/actions/workflows/test.yml)
+
 基于 Snakemake 构建的端到端 bulk RNA-seq 分析流程，覆盖从 FASTQ 质控到 DESeq2 差异表达分析的全流程。
 
 ## 流程步骤
@@ -16,16 +18,19 @@ FASTQ → 输入校验 → FastQC → STAR 比对 → featureCounts 定量 → D
 conda env create -f envs/environment.yaml
 conda activate rna_seq_pipeline
 
-# 2. 配置样本
-# 编辑 config/samples.tsv，添加你的样本信息
+# 2. 下载测试数据（chr22 子集，约 200 MB）
+bash scripts/download_test_data.sh
 
-# 3. 配置参考基因组路径
-# 编辑 config/config.yaml，设置参考基因组和 GTF 路径
+# 3. 准备参考基因组（仅需执行一次）
+#    参见 reference/README.md
 
-# 4. 预览流程
+# 4. 配置样本
+#    编辑 config/samples.tsv，添加你的样本信息
+
+# 5. 预览流程
 snakemake --use-conda -n
 
-# 5. 运行
+# 6. 运行（8 个核心）
 snakemake --use-conda -c 8
 ```
 
@@ -40,7 +45,18 @@ snakemake --use-conda -c 8
 
 ## 技术栈
 
-Snakemake · FastQC · STAR · featureCounts · DESeq2 · R · Python
+Snakemake · FastQC · STAR · featureCounts · DESeq2 · R · Python · Docker · Conda
+
+## 容器运行
+
+```bash
+# Docker
+docker build -t rna_seq_pipeline .
+docker run -it --rm -v $(pwd)/data:/work/data -v $(pwd)/reference:/work/reference -v $(pwd)/results:/work/results rna_seq_pipeline
+
+# Singularity/Apptainer
+snakemake --use-singularity -c 8
+```
 
 ## 许可证
 

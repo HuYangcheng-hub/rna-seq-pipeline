@@ -249,3 +249,8 @@ if (is.null(vsd) || nrow(vsd) < 2 || ncol(vsd) < 2) {
 message("DESeq2 analysis completed.")
 message("Total genes tested: ", nrow(res_df))
 message("Significant genes: ", nrow(sig_genes))
+
+# ── Reproducibility ──────────────────────────────────────────────────────
+session_file <- file.path(dirname(out_csv), "session_info.txt")
+writeLines(capture.output(sessionInfo()), session_file)
+message("Session info written to ", session_file)

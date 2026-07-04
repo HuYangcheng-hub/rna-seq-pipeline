@@ -1,0 +1,105 @@
+name: Test RNA-seq Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # manual trigger for full test
+
+env:
+  CONDA_ENV: rna_seq_pipeline
+
+jobs:
+  # ── Quick checks: lint + dry-run + validation (always runs) ──────────
+  quick:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Micromamba
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: envs/environment.yaml
+          environment-name: ${{ env.CONDA_ENV }}
+          cache-environment: true
+          init-shell: bash
+
+      - name: Lint Snakefile
+        run: snakemake --lint text
+
+      - name: Create dummy FASTQ files for dry-run
+        run: |
+          mkdir -p data
+          for i in 1 2 3 4; do
+            echo "@read1" > data/sample_${i}_R1.fastq.gz
+            echo "@read2" > data/sample_${i}_R2.fastq.gz
+          done
+
+      - name: Dry-run workflow
+        run: snakemake --use-conda -n -p
+
+      - name: Run input validation
+        run: |
+          python scripts/validate_inputs.py \
+            --config config/config.yaml \
+            --sample-sheet config/samples.tsv \
+            --output /tmp/validated.tsv
+
+  # ── End-to-end test (manual trigger or push to main) ─────────────────
+  e2e:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Micromamba
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: envs/environment.yaml
+          environment-name: ${{ env.CONDA_ENV }}
+          cache-environment: true
+          init-shell: bash
+
+      - name: Download chr22 reference
+        run: |
+          mkdir -p reference/chr22/star_index
+          cd reference/chr22
+          wget -q ftp://ftp.ensembl.org/pub/release-113/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz
+          gunzip Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz
+          wget -q ftp://ftp.ensembl.org/pub/release-113/gtf/homo_sapiens/Homo_sapiens.GRCh38.113.chr.gtf.gz
+          gunzip Homo_sapiens.GRCh38.113.chr.gtf.gz
+          grep -P '^(#|22\t)' Homo_sapiens.GRCh38.113.chr.gtf > chr22.gtf
+          cd -
+
+      - name: Build STAR index
+        run: |
+          STAR --runMode genomeGenerate \
+            --runThreadN 4 \
+            --genomeDir reference/chr22/star_index \
+            --genomeFastaFiles reference/chr22/Homo_sapiens.GRCh38.dna.chromosome.22.fa \
+            --sjdbGTFfile reference/chr22/chr22.gtf \
+            --sjdbOverhang 100
+
+      - name: Download test data
+        run: bash scripts/download_test_data.sh
+
+      - name: Run pipeline
+        run: snakemake --use-conda -c 4 --latency-wait 60
+
+      - name: Verify outputs
+        run: |
+          echo "Checking pipeline outputs..."
+          test -f results/multiqc_report.html || { echo "Missing: multiqc_report.html"; exit 1; }
+          test -f results/counts/all_samples_counts.txt || { echo "Missing: count matrix"; exit 1; }
+          test -f results/differential/deseq2_results.csv || { echo "Missing: DESeq2 results"; exit 1; }
+          test -f results/differential/volcano_plot.png || { echo "Missing: volcano plot"; exit 1; }
+          test -f results/differential/heatmap.png || { echo "Missing: heatmap"; exit 1; }
+          test -f results/differential/pca_plot.png || { echo "Missing: PCA plot"; exit 1; }
+          echo "All expected outputs present."

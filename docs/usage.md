@@ -1,5 +1,21 @@
 # Usage Guide
 
+## 0. Quick Test Run
+
+Before using your own data, verify the pipeline works end-to-end:
+
+```bash
+# Download small test FASTQ files (chr22 subset)
+bash scripts/download_test_data.sh
+
+# Prepare chr22 reference (see reference/README.md for full instructions)
+
+# Edit config/samples.tsv to point to the downloaded test files
+# Then preview and run:
+snakemake --use-conda -n
+snakemake --use-conda -c 4
+```
+
 ## 1. Prepare the Environment
 
 ```bash

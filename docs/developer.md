@@ -40,6 +40,15 @@ snakemake --use-conda -c 8 --latency-wait 60
 
 Only do this when you intentionally want to delete local outputs.
 
+## Generating the Workflow DAG
+
+```bash
+# Install Graphviz first: conda install -c conda-forge graphviz
+snakemake --dag | dot -Tpng -Gdpi=150 -o docs/dag.png
+```
+
+This produces a visual dependency graph for documentation.
+
 ## Release Notes
 
 Record user-facing workflow changes in `CHANGELOG.md`.
