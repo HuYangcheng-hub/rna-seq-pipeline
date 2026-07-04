@@ -1,11 +1,10 @@
-# Main RNA-seq pipeline configuration.
+# RNA-seq pipeline configuration
+# Replace paths with your own when running on real data.
 
 sample_sheet: "config/samples.tsv"
 paired_end: true
 
 reference:
-  # Example chr22 reference paths for the bundled demo data.
-  # For production runs, replace these paths with your project reference files.
   star_index: "reference/chr22/star_index"
   gtf: "reference/chr22/chr22.gtf"
   genome_fasta: "reference/chr22/Homo_sapiens.GRCh38.dna.chromosome.22.fa"
@@ -28,8 +27,6 @@ deseq2_params:
   lfc_cutoff: 1.0
   min_count: 10
   min_samples: 2
-  strict_replicates: false
-  min_replicates_per_group: 2
 
 resources:
   fastqc_threads: 2

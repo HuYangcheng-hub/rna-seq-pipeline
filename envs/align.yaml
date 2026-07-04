@@ -3,5 +3,6 @@ channels:
   - conda-forge
   - bioconda
 dependencies:
+  - zlib
   - star>=2.7
   - samtools>=1.18
