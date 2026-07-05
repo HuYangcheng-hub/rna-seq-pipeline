@@ -29,3 +29,4 @@ dependencies:
   # Utilities
   - git
   - pigz
+  - sra-tools
