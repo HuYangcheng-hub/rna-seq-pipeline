@@ -15,7 +15,7 @@
 #
 # Or let Snakemake pull containers per-rule via --use-singularity.
 
-FROM mambaorg/micromamba:2.0-jammy
+FROM mambaorg/micromamba:latest
 
 LABEL org.opencontainers.image.title="RNA-seq Pipeline"
 LABEL org.opencontainers.image.description="End-to-end bulk RNA-seq workflow with Snakemake"
@@ -28,6 +28,9 @@ COPY envs/environment.yaml /tmp/environment.yaml
 RUN micromamba install -y -n base -f /tmp/environment.yaml \
     && micromamba clean -afy
 
+# Make conda available as a symlink to micromamba (Snakemake expects 'conda')
+RUN ln -s /usr/bin/micromamba /opt/conda/bin/conda
+
 # Copy workflow files (excludes data/, reference/, results/ via .dockerignore)
 COPY . /work
 
@@ -35,5 +38,5 @@ COPY . /work
 # For container-only runs (no conda), set up a shared env:
 #   snakemake --use-conda --conda-prefix /opt/conda-envs -c 8
 
-ENTRYPOINT ["snakemake"]
-CMD ["--use-conda", "-c", "8"]
+# Inherit base image entrypoint (activates micromamba), override CMD only
+CMD ["snakemake", "--use-conda", "-c", "8"]

@@ -153,6 +153,9 @@ dds <- tryCatch(
       paste("DESeq2 skipped:", conditionMessage(e)),
       out_csv, out_sig, out_norm, out_volcano, out_heatmap, out_pca
     )
+    # Write session info even on early exit
+    session_file <- file.path(dirname(out_csv), "session_info.txt")
+    writeLines(capture.output(sessionInfo()), session_file)
     quit(save = "no", status = 0)
   }
 )
