@@ -48,7 +48,7 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Pull Docker image
-        run: docker pull ghcr.io/huyangcheng-hub/rna-seq-pipeline:latest
+        run: docker pull ghcr.io/huyangcheng-hub/rna-seq-pipeline/pipeline:latest
 
       - name: Download chr22 reference
         run: |
@@ -65,7 +65,7 @@ jobs:
         run: |
           docker run --rm \
             -v $(pwd):/work \
-            ghcr.io/huyangcheng-hub/rna-seq-pipeline:latest \
+            ghcr.io/huyangcheng-hub/rna-seq-pipeline/pipeline:latest \
             bash -c "
               cd /work &&
               echo 'Building STAR index...' &&
