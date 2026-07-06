@@ -52,14 +52,16 @@ jobs:
 
       - name: Download chr22 reference
         run: |
+          set -e
           mkdir -p reference/chr22/star_index
           cd reference/chr22
-          wget -q ftp://ftp.ensembl.org/pub/release-113/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz
+          wget -q https://ftp.ensembl.org/pub/release-113/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz
           gunzip Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz
-          wget -q ftp://ftp.ensembl.org/pub/release-113/gtf/homo_sapiens/Homo_sapiens.GRCh38.113.chr.gtf.gz
+          wget -q https://ftp.ensembl.org/pub/release-113/gtf/homo_sapiens/Homo_sapiens.GRCh38.113.chr.gtf.gz
           gunzip Homo_sapiens.GRCh38.113.chr.gtf.gz
-          grep -P '^(#|22\t)' Homo_sapiens.GRCh38.113.chr.gtf > chr22.gtf
-          cd -
+          grep -E "^(#|22[[:space:]])" Homo_sapiens.GRCh38.113.chr.gtf > chr22.gtf
+          cd /work
+          echo "Reference downloaded successfully"
 
       - name: Build STAR index + generate data + run pipeline
         run: |
