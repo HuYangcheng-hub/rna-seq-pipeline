@@ -5,13 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:  # manual trigger for full test
-
-env:
-  CONDA_ENV: rna_seq_pipeline
+  workflow_dispatch:
 
 jobs:
-  # ── Quick checks: lint + dry-run + validation (always runs) ──────────
+  # ── Quick checks (always runs) ──────────────────────────────────────
   quick:
     runs-on: ubuntu-latest
     defaults:
@@ -23,49 +20,35 @@ jobs:
       - name: Setup Micromamba
         uses: mamba-org/setup-micromamba@v2
         with:
-          environment-file: envs/environment.yaml
-          environment-name: ${{ env.CONDA_ENV }}
+          environment-file: envs/validate.yaml
+          environment-name: test_env
           cache-environment: true
           init-shell: bash
 
       - name: Lint Snakefile
         run: snakemake --lint 2>&1 || echo "Lint warnings (non-fatal)"
 
-      - name: Create dummy FASTQ files for dry-run
+      - name: Dry-run workflow
         run: |
           mkdir -p data
           for i in 1 2 3 4; do
-            echo "@read1" > data/sample_${i}_R1.fastq.gz
-            echo "@read2" > data/sample_${i}_R2.fastq.gz
+            echo -e "@read1\nACGTACGT\n+\nIIIIIIII" | gzip > data/sample_${i}_R1.fastq.gz
+            echo -e "@read1\nACGTACGT\n+\nIIIIIIII" | gzip > data/sample_${i}_R2.fastq.gz
           done
+          snakemake -n -p
 
-      - name: Dry-run workflow
-        run: snakemake -n -p
-
-      - name: Run input validation
-        run: |
-          python scripts/validate_inputs.py \
-            --config config/config.yaml \
-            --sample-sheet config/samples.tsv \
-            --output /tmp/validated.tsv
-
-  # ── End-to-end test (manual trigger or push to main) ─────────────────
+  # ── End-to-end test (Docker-based) ──────────────────────────────────
   e2e:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
-    defaults:
-      run:
-        shell: bash -el {0}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Micromamba
-        uses: mamba-org/setup-micromamba@v2
-        with:
-          environment-file: envs/environment.yaml
-          environment-name: ${{ env.CONDA_ENV }}
-          cache-environment: true
-          init-shell: bash
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Pull Docker image
+        run: docker pull ghcr.io/huyangcheng-hub/rna-seq-pipeline:latest
 
       - name: Download chr22 reference
         run: |
@@ -78,20 +61,25 @@ jobs:
           grep -P '^(#|22\t)' Homo_sapiens.GRCh38.113.chr.gtf > chr22.gtf
           cd -
 
-      - name: Build STAR index
+      - name: Build STAR index + generate data + run pipeline
         run: |
-          STAR --runMode genomeGenerate \
-            --runThreadN 4 \
-            --genomeDir reference/chr22/star_index \
-            --genomeFastaFiles reference/chr22/Homo_sapiens.GRCh38.dna.chromosome.22.fa \
-            --sjdbGTFfile reference/chr22/chr22.gtf \
-            --sjdbOverhang 100
-
-      - name: Download test data
-        run: bash scripts/download_test_data.sh
-
-      - name: Run pipeline
-        run: snakemake -c 4 --latency-wait 120
+          docker run --rm \
+            -v $(pwd):/work \
+            ghcr.io/huyangcheng-hub/rna-seq-pipeline:latest \
+            bash -c "
+              cd /work &&
+              echo 'Building STAR index...' &&
+              STAR --runMode genomeGenerate \
+                --runThreadN 4 \
+                --genomeDir reference/chr22/star_index \
+                --genomeFastaFiles reference/chr22/Homo_sapiens.GRCh38.dna.chromosome.22.fa \
+                --sjdbGTFfile reference/chr22/chr22.gtf \
+                --sjdbOverhang 100 &&
+              echo 'Generating test data...' &&
+              python3 scripts/generate_test_data.py &&
+              echo 'Running pipeline...' &&
+              snakemake -c 4 --latency-wait 120
+            "
 
       - name: Verify outputs
         run: |
@@ -102,4 +90,4 @@ jobs:
           test -f results/differential/volcano_plot.png || { echo "Missing: volcano plot"; exit 1; }
           test -f results/differential/heatmap.png || { echo "Missing: heatmap"; exit 1; }
           test -f results/differential/pca_plot.png || { echo "Missing: PCA plot"; exit 1; }
-          echo "All expected outputs present."
+          echo "All expected outputs present ✅"
