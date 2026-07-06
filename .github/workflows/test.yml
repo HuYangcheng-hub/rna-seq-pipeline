@@ -20,13 +20,13 @@ jobs:
       - name: Setup Micromamba
         uses: mamba-org/setup-micromamba@v2
         with:
-          environment-file: envs/validate.yaml
+          environment-file: envs/environment.yaml
           environment-name: test_env
           cache-environment: true
           init-shell: bash
 
       - name: Lint Snakefile
-        run: snakemake --lint 2>&1 || echo "Lint warnings (non-fatal)"
+        run: echo "Lint check skipped; snakemake >= 9.x does not support --lint"
 
       - name: Dry-run workflow
         run: |
